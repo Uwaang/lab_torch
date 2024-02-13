@@ -1,5 +1,5 @@
 # docker run -it --rm --gpus all -p 6606:6606 -w /workspace -v $PWD:/workspace dl_image:1.1
-
+# python train.py --data_config ./config.yaml --save_path ./data/set1/pt/ --batch 4 --epoch 100
 import argparse
 import os
 import torch
@@ -50,7 +50,8 @@ class SimpleDataset(Dataset):
 
 # Data transforms
 transform = transforms.Compose([
-    transforms.Resize((224, 224)),
+    # transforms.Resize((224, 224)),
+    transforms.Resize((40 , 40)),
     transforms.ToTensor(),
 ])
 
@@ -97,8 +98,43 @@ class SimpleCNN(nn.Module):
         x = self.classifier(x)
         return x
 
+class Simage_CNN(nn.Module):
+    def __init__(self, num_classes):
+        super(Simage_CNN, self).__init__()
+        self.features = nn.Sequential(
+            # 첫 번째 계층: 작은 커널 크기와 적은 필터 수로 시작
+            nn.Conv2d(3, 32, kernel_size=3, stride=1, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # 두 번째 계층: 조금 더 많은 필터를 사용하지만 여전히 작은 커널
+            nn.Conv2d(32, 64, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+            # 세 번째 계층: 필터 수를 늘리고, 작은 이미지에 맞게 조정
+            nn.Conv2d(64, 128, kernel_size=3, padding=1),
+            nn.ReLU(inplace=True),
+            nn.MaxPool2d(kernel_size=2, stride=2),
+        )
+        self.avgpool = nn.AdaptiveAvgPool2d((5, 5))
+        self.classifier = nn.Sequential(
+            nn.Dropout(),
+            # 평탄화된 특성 맵을 기반으로 분류기를 구성
+            nn.Linear(128 * 5 * 5, 512),
+            nn.ReLU(inplace=True),
+            nn.Dropout(),
+            nn.Linear(512, num_classes),
+        )
+
+    def forward(self, x):
+        x = self.features(x)
+        x = self.avgpool(x)
+        x = torch.flatten(x, 1)
+        x = self.classifier(x)
+        return x
+
 # Initialize model, criterion, optimizer, and device
-model = SimpleCNN(num_classes=num_classes)
+# model = SimpleCNN(num_classes=num_classes)
+model = Simage_CNN(num_classes=num_classes)
 criterion = nn.CrossEntropyLoss()
 optimizer = optim.Adam(model.parameters(), lr=0.001)
 device = torch.device("cuda" if torch.cuda.is_available() else "cpu")
@@ -107,9 +143,8 @@ model.to(device)
 # TensorBoard writer
 writer = SummaryWriter()
 
-# Training and validation function
 def train_and_validate(model, criterion, optimizer, train_loader, val_loader, epochs, device, save_path):
-    best_accuracy = 0.0  # Initialize the best accuracy
+    best_accuracy = 0.0
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
@@ -121,31 +156,44 @@ def train_and_validate(model, criterion, optimizer, train_loader, val_loader, ep
             loss.backward()
             optimizer.step()
             running_loss += loss.item()
+            # Optionally log parameter histograms
+            for name, param in model.named_parameters():
+                writer.add_histogram(f'{name}/gradients', param.grad, epoch)
+                writer.add_histogram(f'{name}/weights', param, epoch)
         avg_loss = running_loss / len(train_loader)
         writer.add_scalar('training loss', avg_loss, epoch)
 
         # Validation
         model.eval()
+        running_val_loss = 0.0
         correct = 0
         total = 0
         with torch.no_grad():
             for inputs, labels in val_loader:
                 inputs, labels = inputs.to(device), labels.to(device)
                 outputs = model(inputs)
+                loss = criterion(outputs, labels)
+                running_val_loss += loss.item()
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
+        avg_val_loss = running_val_loss / len(val_loader)
         accuracy = 100 * correct / total
+        writer.add_scalar('validation loss', avg_val_loss, epoch)
         writer.add_scalar('validation accuracy', accuracy, epoch)
 
-        # Check if this is the best model based on validation accuracy
+        # Log images from the last batch of the epoch
+        img_grid = torchvision.utils.make_grid(inputs)
+        writer.add_image('validation images', img_grid, epoch)
+
         if accuracy > best_accuracy:
             best_accuracy = accuracy
             best_model_path = os.path.join(save_path, 'best_model.pt')
             torch.save(model.state_dict(), best_model_path)
             print(f'New best model saved with accuracy: {accuracy}%')
 
-        print(f'Epoch {epoch+1}, Loss: {avg_loss}, Accuracy: {accuracy}%')
+        print(f'Epoch {epoch+1}, Loss: {avg_loss}, Val Loss: {avg_val_loss}, Accuracy: {accuracy}%')
+
 
     # Optionally, you can also save the final model
     # torch.save(model.state_dict(), os.path.join(save_path, 'final_model.pt'))
