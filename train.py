@@ -1,3 +1,5 @@
+# docker run -it --rm --gpus all -p 6606:6606 -w /workspace -v $PWD:/workspace dl_image:1.1
+
 import argparse
 import os
 import torch
@@ -107,6 +109,7 @@ writer = SummaryWriter()
 
 # Training and validation function
 def train_and_validate(model, criterion, optimizer, train_loader, val_loader, epochs, device, save_path):
+    best_accuracy = 0.0  # Initialize the best accuracy
     for epoch in range(epochs):
         model.train()
         running_loss = 0.0
@@ -135,12 +138,18 @@ def train_and_validate(model, criterion, optimizer, train_loader, val_loader, ep
         accuracy = 100 * correct / total
         writer.add_scalar('validation accuracy', accuracy, epoch)
 
-        # Save checkpoint
-        torch.save(model.state_dict(), os.path.join(save_path, f'checkpoint_epoch_{epoch}.pt'))
+        # Check if this is the best model based on validation accuracy
+        if accuracy > best_accuracy:
+            best_accuracy = accuracy
+            best_model_path = os.path.join(save_path, 'best_model.pt')
+            torch.save(model.state_dict(), best_model_path)
+            print(f'New best model saved with accuracy: {accuracy}%')
+
         print(f'Epoch {epoch+1}, Loss: {avg_loss}, Accuracy: {accuracy}%')
 
-    # Save final model
-    torch.save(model.state_dict(), os.path.join(save_path, 'model.pt'))
+    # Optionally, you can also save the final model
+    # torch.save(model.state_dict(), os.path.join(save_path, 'final_model.pt'))
+
 
 if __name__ == '__main__':
     train_and_validate(model, criterion, optimizer, train_loader, val_loader, args.epoch, device, args.save_path)
