@@ -1,0 +1,4 @@
+train :  ./data/set1/images/train
+val: ./data/set1/images/val
+nc: 2
+names: ['dog', 'cat']
