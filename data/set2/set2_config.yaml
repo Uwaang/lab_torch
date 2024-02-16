@@ -1,0 +1,4 @@
+train : ./data/set2/images/train
+val: ./data/set2/images/val
+nc: 4
+names: ['green', 'y_red','red','background']

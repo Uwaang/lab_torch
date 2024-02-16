@@ -18,6 +18,31 @@ import torchvision.utils as vutils
 import matplotlib.pyplot as plt
 import numpy as np
 
+
+# def log_predictions(writer, images, labels, predictions, class_names, epoch):
+#     """
+#     Log prediction results for a batch of images to TensorBoard.
+    
+#     Args:
+#     - writer: TensorBoard SummaryWriter instance.
+#     - images: Batch of images. Tensor of shape (B, C, H, W).
+#     - labels: True labels for each image in the batch.
+#     - predictions: Model predictions for each image in the batch.
+#     - class_names: List of class names, indexed according to prediction labels.
+#     - epoch: Current epoch number.
+#     """
+#     # Make a grid of images
+#     img_grid = vutils.make_grid(images, normalize=True, scale_each=True)
+    
+#     # Create a text label for each image displaying prediction and true label
+#     labels_text = [f'Pred: {class_names[pred]}, True: {class_names[label]}' for pred, label in zip(predictions, labels)]
+#     labels_text = '\n'.join(labels_text)
+    
+#     # Add image grid with labels to TensorBoard
+#     writer.add_image(f'Predictions vs. True Labels @ Epoch {epoch}', img_grid, global_step=epoch)
+#     writer.add_text(f'Labels @ Epoch {epoch}', labels_text, global_step=epoch)
+
+
 # Parse command line arguments
 parser = argparse.ArgumentParser(description='Train a simple CNN classifier.')
 parser.add_argument('--data_config', type=str, required=True, help='Path to data config file')
@@ -184,9 +209,9 @@ def plot_classes_preds(net, images, labels):
         ax = fig.add_subplot(1, 4, idx+1, xticks=[], yticks=[])
         matplotlib_imshow(images[idx], one_channel=True)
         ax.set_title("{0}, {1:.1f}%\n(label: {2})".format(
-            class_names[preds[idx]],
+            classes[preds[idx]],
             probs[idx] * 100.0,
-            class_names[labels[idx]]),
+            classes[labels[idx]]),
                     color=("green" if preds[idx]==labels[idx].item() else "red"))
     return fig
 
@@ -226,11 +251,13 @@ def train_and_validate(model, criterion, optimizer, train_loader, val_loader, ep
                 _, predicted = torch.max(outputs.data, 1)
                 total += labels.size(0)
                 correct += (predicted == labels).sum().item()
-        
-        val_images, val_labels = next(iter(val_loader))
-        val_images, val_labels = val_images.to(device), val_labels.to(device)
-        fig = plot_classes_preds(model, val_images, val_labels)
-        writer.add_figure('Predictions vs. Actuals', fig, global_step=epoch)
+
+                # Convert outputs and labels to CPU for logging
+                # predictions = torch.argmax(outputs, dim=1).cpu().numpy()
+                # labels = labels.cpu().numpy()
+
+                # # Log predictions for this batch
+                # log_predictions(writer, inputs.cpu(), labels, predictions, class_names, epoch)
         
         avg_val_loss = running_val_loss / len(val_loader)
         accuracy = 100 * correct / total
@@ -238,8 +265,8 @@ def train_and_validate(model, criterion, optimizer, train_loader, val_loader, ep
         writer.add_scalar('validation accuracy', accuracy, epoch)
 
         # Log images from the last batch of the epoch
-        # img_grid = torchvision.utils.make_grid(inputs)
-        # writer.add_image('validation images', img_grid, epoch)
+        img_grid = torchvision.utils.make_grid(inputs)
+        writer.add_image('validation images', img_grid, epoch)
 
         if accuracy > best_accuracy:
             best_accuracy = accuracy
